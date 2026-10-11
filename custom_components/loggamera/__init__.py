@@ -17,8 +17,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import LoggameraAPI, LoggameraAPIError
 from .const import (
     CONF_API_KEY,
+    CONF_DEVICE_ID,
+    CONF_DEVICE_TYPE,
     CONF_ORGANIZATION_ID,
     CONF_SCAN_INTERVAL,
+    DEFAULT_DEVICE_TYPE,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     PLATFORMS,
@@ -67,13 +70,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Create API client
         api = LoggameraAPI(api_key=api_key, organization_id=organization_id)
 
-        # Test API connection
-        try:
-            # Test connection by getting organizations
-            await hass.async_add_executor_job(api.get_organizations)
-        except LoggameraAPIError as err:
-            _LOGGER.error(f"Failed to connect to Loggamera API: {err}")
-            raise ConfigEntryNotReady(f"Failed to connect to Loggamera API: {err}")
+        configured_device_id = entry.data.get(CONF_DEVICE_ID)
+
+        # Test API connection (skipped for device-scoped keys, which cannot list organizations)
+        if not configured_device_id:
+            try:
+                # Test connection by getting organizations
+                await hass.async_add_executor_job(api.get_organizations)
+            except LoggameraAPIError as err:
+                _LOGGER.error(f"Failed to connect to Loggamera API: {err}")
+                raise ConfigEntryNotReady(f"Failed to connect to Loggamera API: {err}")
 
         # Create update coordinator
         coordinator = LoggameraDataUpdateCoordinator(
@@ -81,6 +87,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             api=api,
             name=f"Loggamera {organization_id}" if organization_id else "Loggamera",
             update_interval=timedelta(seconds=scan_interval),
+            device=(
+                {
+                    "Id": configured_device_id,
+                    "Class": entry.data.get(CONF_DEVICE_TYPE, DEFAULT_DEVICE_TYPE),
+                    "Title": f"{entry.data.get(CONF_DEVICE_TYPE, DEFAULT_DEVICE_TYPE)} "
+                    f"{configured_device_id}",
+                }
+                if configured_device_id
+                else None
+            ),
         )
 
         # Initial data fetch
@@ -135,6 +151,7 @@ class LoggameraDataUpdateCoordinator(DataUpdateCoordinator):
         api: LoggameraAPI,
         name: str,
         update_interval: timedelta,
+        device: Dict[str, Any] | None = None,
     ):
         """Initialize data update coordinator."""
         super().__init__(
@@ -144,8 +161,10 @@ class LoggameraDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=update_interval,
         )
         self.api = api
+        # Fixed device for device-scoped API keys (no Organizations/Devices access)
+        self.fixed_device = device
         self.data = {
-            "devices": [],
+            "devices": [device] if device else [],
             "device_data": {},
             "scenarios": [],
             "organizations": [],
@@ -165,9 +184,13 @@ class LoggameraDataUpdateCoordinator(DataUpdateCoordinator):
             # Start with existing data - we'll update it
             updated_data = self.data.copy()
 
-            # Always fetch organizations for organization sensors
-            _LOGGER.debug("Fetching organizations for organization sensors")
-            org_response = await self.hass.async_add_executor_job(self.api.get_organizations)
+            if self.fixed_device:
+                updated_data["devices"] = [self.fixed_device]
+                org_response = {}
+            else:
+                # Always fetch organizations for organization sensors
+                _LOGGER.debug("Fetching organizations for organization sensors")
+                org_response = await self.hass.async_add_executor_job(self.api.get_organizations)
 
             if (
                 "Data" in org_response
@@ -193,6 +216,8 @@ class LoggameraDataUpdateCoordinator(DataUpdateCoordinator):
 
             # Fetch scenarios if available (for button platform if needed in future)
             try:
+                if self.fixed_device:
+                    raise LoggameraAPIError("Scenarios unavailable for device-scoped key")
                 scenarios_response = await self.hass.async_add_executor_job(self.api.get_scenarios)
                 if "Data" in scenarios_response and "Scenarios" in scenarios_response["Data"]:
                     updated_data["scenarios"] = scenarios_response["Data"]["Scenarios"]

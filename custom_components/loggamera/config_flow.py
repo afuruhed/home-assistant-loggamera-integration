@@ -10,9 +10,13 @@ from homeassistant.helpers.selector import NumberSelector, NumberSelectorConfig,
 from .api import LoggameraAPI, LoggameraAPIError
 from .const import (
     CONF_API_KEY,
+    CONF_DEVICE_ID,
+    CONF_DEVICE_TYPE,
     CONF_ORGANIZATION_ID,
     CONF_SCAN_INTERVAL,
+    DEFAULT_DEVICE_TYPE,
     DEFAULT_SCAN_INTERVAL,
+    DEVICE_TYPES,
     DOMAIN,
 )
 
@@ -35,6 +39,38 @@ class LoggameraConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
+            device_id = user_input.get(CONF_DEVICE_ID)
+            if device_id:
+                # Device-scoped API key: Organizations/Devices are not available,
+                # so validate by reading the device directly.
+                device_type = user_input.get(CONF_DEVICE_TYPE, DEFAULT_DEVICE_TYPE)
+                try:
+                    api = LoggameraAPI(user_input[CONF_API_KEY])
+                    await self.hass.async_add_executor_job(
+                        api.get_device_data, int(device_id), device_type
+                    )
+                except LoggameraAPIError as err:
+                    _LOGGER.error(f"Failed to read device {device_id}: {err}")
+                    errors["base"] = "cannot_connect"
+                except Exception as err:
+                    _LOGGER.exception(f"Unexpected error: {err}")
+                    errors["base"] = "unknown"
+                else:
+                    await self.async_set_unique_id(f"device_{int(device_id)}")
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title=f"Loggamera {device_type} {int(device_id)}",
+                        data={
+                            CONF_API_KEY: user_input[CONF_API_KEY],
+                            CONF_DEVICE_ID: int(device_id),
+                            CONF_DEVICE_TYPE: device_type,
+                            CONF_SCAN_INTERVAL: user_input.get(
+                                CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+                            ),
+                        },
+                    )
+                return self._show_form(errors)
+
             try:
                 # Validate the API key by connecting to the API
                 api = LoggameraAPI(user_input[CONF_API_KEY])
@@ -75,12 +111,19 @@ class LoggameraConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception(f"Unexpected error: {err}")
                 errors["base"] = "unknown"
 
-        # Show the form for user input
+        return self._show_form(errors)
+
+    def _show_form(self, errors):
+        """Show the user form."""
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_API_KEY): str,
+                    vol.Optional(CONF_DEVICE_ID): int,
+                    vol.Optional(CONF_DEVICE_TYPE, default=DEFAULT_DEVICE_TYPE): vol.In(
+                        DEVICE_TYPES
+                    ),
                     vol.Optional(
                         CONF_SCAN_INTERVAL,
                         default=DEFAULT_SCAN_INTERVAL,

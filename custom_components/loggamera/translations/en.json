@@ -13,6 +13,8 @@
       "user": {
         "data": {
           "api_key": "API Key",
+          "device_id": "Device ID (only for device-specific API keys)",
+          "device_type": "Device type (used with Device ID)",
           "scan_interval": "Update interval (seconds)"
         },
         "description": "Enter your Loggamera API key to connect to your devices",

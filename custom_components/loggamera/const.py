@@ -4,6 +4,8 @@ DOMAIN = "loggamera"
 
 # API URLs and endpoints
 API_URL = "https://platform.loggamera.se/api/v2"
+# Heat pump settings (Set*) and writes are only exposed in the v1 snapshot
+API_URL_V1 = "https://platform.loggamera.se/Api/v1"
 API_ENDPOINT_ORGANIZATIONS = "Organizations"
 API_ENDPOINT_DEVICES = "Devices"
 API_ENDPOINT_POWER_METER = "PowerMeter"
@@ -14,6 +16,8 @@ API_ENDPOINT_COOLING_UNIT = "CoolingUnit"
 API_ENDPOINT_HEAT_PUMP = "HeatPump"
 API_ENDPOINT_RAW_DATA = "RawData"
 API_ENDPOINT_CAPABILITIES = "Capabilities"
+API_ENDPOINT_GET_CAPABILITIES = "GetCapabilities"
+API_ENDPOINT_SET_PROPERTY = "SetProperty"
 API_ENDPOINT_SCENARIOS = "Scenarios"
 API_ENDPOINT_EXECUTE_SCENARIO_ASYNC = "ExecuteScenarioAsync"
 API_ENDPOINT_USER_ACCESS = "UserAccess"
@@ -51,4 +55,7 @@ SENSOR_WATER = "water"
 SENSOR_VALUE = "value"
 
 # Platform definitions
-PLATFORMS = ["sensor", "binary_sensor", "switch"]
+PLATFORMS = ["sensor", "binary_sensor", "switch", "number"]
+
+# Writable heat pump property exposed as a number entity
+PROPERTY_SET_INDOOR_TEMP = "SetIndoorTemp"

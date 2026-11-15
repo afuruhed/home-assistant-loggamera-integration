@@ -29,7 +29,7 @@ Integrate your Loggamera devices with Home Assistant for comprehensive energy mo
 - 💧 **WaterMeter** - Water consumption monitoring
 - 🔥 **HeatMeter** - Comprehensive heating system monitoring
 - 🔌 **ChargingStation** - EV charging tracking
-- 🌡️ **HeatPump** - Heat pump system monitoring
+- 🌡️ **HeatPump** - Heat pump system monitoring (with an indoor temperature setpoint control if the device allows writing it)
 - 🏢 **Organization** - Multi-organization management
 
 ## 📊 Features

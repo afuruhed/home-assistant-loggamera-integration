@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import aiofiles
 from homeassistant.config_entries import ConfigEntry
@@ -25,6 +25,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     PLATFORMS,
+    PROPERTY_SET_INDOOR_TEMP,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -166,6 +167,8 @@ class LoggameraDataUpdateCoordinator(DataUpdateCoordinator):
         self.api = api
         # Fixed device for device-scoped API keys (no Organizations/Devices access)
         self.fixed_device = device
+        # device_id -> writable property names, fetched once per device
+        self.write_capabilities: Dict[str, List[str]] = {}
         self.data = {
             "devices": [device] if device else [],
             "device_data": {},
@@ -177,6 +180,28 @@ class LoggameraDataUpdateCoordinator(DataUpdateCoordinator):
             "Created Loggamera data coordinator with update interval: %s",
             update_interval,
         )
+
+    async def _async_update_heat_pump_settings(
+        self, device_id: int, updated_data: Dict[str, Any]
+    ) -> None:
+        """Fetch writable capabilities (once) and current settings for a heat pump.
+
+        Failures are not fatal: the heat pump keeps working without a setpoint entity.
+        """
+        key = str(device_id)
+        try:
+            if key not in self.write_capabilities:
+                self.write_capabilities[key] = await self.hass.async_add_executor_job(
+                    self.api.get_write_capabilities, device_id
+                )
+            if PROPERTY_SET_INDOOR_TEMP in self.write_capabilities[key]:
+                updated_data["device_data"][f"settings_{key}"] = (
+                    await self.hass.async_add_executor_job(
+                        self.api.get_heat_pump_settings, device_id
+                    )
+                )
+        except LoggameraAPIError as err:
+            _LOGGER.debug(f"Heat pump settings not available for device {device_id}: {err}")
 
     async def _async_update_data(self) -> Dict[str, Any]:  # noqa: C901
         """Fetch data from API."""
@@ -258,6 +283,9 @@ class LoggameraDataUpdateCoordinator(DataUpdateCoordinator):
                     except LoggameraAPIError as e:
                         _LOGGER.debug(f"RawData not available for device {device_id}: {e}")
                         # This is normal - not all devices support RawData
+
+                    if device_type == "HeatPump":
+                        await self._async_update_heat_pump_settings(device_id, updated_data)
 
                     # Log which data sources were used
                     sources = []

@@ -8,7 +8,7 @@ import sys
 import time
 from datetime import datetime  # noqa: F401
 from enum import Enum
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import certifi
 import requests
@@ -19,15 +19,18 @@ from .const import (
     API_ENDPOINT_DEVICES,
     API_ENDPOINT_EXECUTE_SCENARIO_ASYNC,
     API_ENDPOINT_GENERIC_DEVICE,
+    API_ENDPOINT_GET_CAPABILITIES,
     API_ENDPOINT_HEAT_PUMP,
     API_ENDPOINT_ORGANIZATIONS,
     API_ENDPOINT_POWER_METER,
     API_ENDPOINT_RAW_DATA,
     API_ENDPOINT_ROOM_SENSOR,
     API_ENDPOINT_SCENARIOS,
+    API_ENDPOINT_SET_PROPERTY,
     API_ENDPOINT_USER_ACCESS,
     API_ENDPOINT_WATER_METER,
     API_URL,
+    API_URL_V1,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -205,13 +208,14 @@ class LoggameraAPI:
         time.sleep(delay)
 
     def _make_request(  # noqa: C901
-        self, endpoint: str, data: Optional[Dict[str, Any]] = None
+        self, endpoint: str, data: Optional[Dict[str, Any]] = None, api_url: str = API_URL
     ) -> Dict[str, Any]:
         """Make a request to the Loggamera API with retry and circuit breaker.
 
         Args:
             endpoint: The API endpoint to call (without leading slash)
             data: Optional request data dict (ApiKey will be added automatically)
+            api_url: Base URL; the default is API v2, v1 is used for heat pump settings/writes
 
         Returns:
             Dict containing the API response
@@ -220,13 +224,16 @@ class LoggameraAPI:
             LoggameraAPIError: If the request fails or returns an error
         """
         # Check circuit breaker
-        circuit_breaker = self._get_circuit_breaker(endpoint)
+        # v1 and v2 share endpoint names (e.g. HeatPump), so keep their breakers apart
+        circuit_breaker = self._get_circuit_breaker(
+            endpoint if api_url == API_URL else f"v1/{endpoint}"
+        )
         if circuit_breaker.is_open():
             raise LoggameraAPIError(
                 f"Circuit breaker is open for endpoint {endpoint}. " f"Too many recent failures."
             )
 
-        url = f"{API_URL}/{endpoint}"
+        url = f"{api_url}/{endpoint}"
         headers = {"Content-Type": "application/json"}
 
         # Initialize data if not provided
@@ -699,6 +706,54 @@ class LoggameraAPI:
                 }
             else:
                 raise
+
+    def get_write_capabilities(self, device_id: Union[str, int]) -> List[str]:
+        """Get the property names that can be written with set_property.
+
+        Args:
+            device_id: Device ID to get write capabilities for
+
+        Returns:
+            List of writable property names (empty if the device reports none)
+        """
+        device_id = self._validate_device_params(device_id, "Unknown")
+        response = self._make_request(API_ENDPOINT_GET_CAPABILITIES, {"DeviceId": device_id})
+        return (response.get("Data") or {}).get("WriteCapabilities") or []
+
+    def get_heat_pump_settings(self, device_id: Union[str, int]) -> Dict[str, Any]:
+        """Get the heat pump snapshot from API v1, which includes the current Set* values.
+
+        Args:
+            device_id: Heat pump device ID
+
+        Returns:
+            The "Data" dict of the v1 HeatPump response (e.g. SetIndoorTemp)
+        """
+        device_id = self._validate_device_params(device_id, "HeatPump")
+        response = self._make_request(API_ENDPOINT_HEAT_PUMP, {"DeviceId": device_id}, API_URL_V1)
+        return response.get("Data") or {}
+
+    def set_property(self, device_id: Union[str, int], name: str, value: str) -> None:
+        """Write a device property (see get_write_capabilities for valid names).
+
+        The device applies the change after a few minutes.
+
+        Args:
+            device_id: Device ID to write to
+            name: Property name, e.g. SetIndoorTemp
+            value: New value as a string, e.g. "21.5"
+
+        Raises:
+            LoggameraAPIError: If the API rejects the write
+        """
+        device_id = self._validate_device_params(device_id, "Unknown")
+        response = self._make_request(
+            API_ENDPOINT_SET_PROPERTY,
+            {"DeviceId": device_id, "PropertyName": name, "Value": value},
+            API_URL_V1,
+        )
+        if not (response.get("Data") or {}).get("Result"):
+            raise LoggameraAPIError(f"Write of {name}={value} to device {device_id} was rejected")
 
     def get_scenarios(self) -> Dict[str, Any]:
         """Get scenarios for the configured organization.

@@ -65,5 +65,16 @@ CAPABILITIES_RETRY_SECONDS = 3600
 # Minimum time between two writes to the same device. A ComfortZone RX50 dropped a write
 # sent 3 s after another one, while writes about 4 min apart both arrived.
 WRITE_MIN_INTERVAL_SECONDS = 300
-# How long a written value is shown before the device's own reported value wins again
+# How long a written value is shown before the device's own reported value wins again,
+# and how long a write may take to be reported back before it counts as not confirmed
 PENDING_TIMEOUT_SECONDS = 900
+
+# Fired when a setpoint write fails, also for queued writes nobody is awaiting.
+# Data: entity_id, loggamera_device_id, value, reason ("error" or "not_confirmed"), error
+EVENT_SETPOINT_WRITE_FAILED = "loggamera_setpoint_write_failed"
+# Values of the number entity's last_write_status attribute
+WRITE_STATUS_SENDING = "sending"
+WRITE_STATUS_SENT = "sent"
+WRITE_STATUS_CONFIRMED = "confirmed"
+WRITE_STATUS_FAILED = "failed"
+WRITE_STATUS_EXPIRED = "expired"

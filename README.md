@@ -41,6 +41,15 @@ Integrate your Loggamera devices with Home Assistant for comprehensive energy mo
 - **Retry Logic & Circuit Breaker** for robust API connectivity
 - **Multi-Organization Support** with hierarchy tracking
 
+### Heat pump setpoint
+
+Heat pumps that allow writing `SetIndoorTemp` get a number entity for the indoor temperature setpoint.
+
+- Writes to the same device are sent at least 5 minutes apart, because a pump can drop a write that closely follows another. A write that comes sooner is queued, and only the newest queued value is sent.
+- A value that changes nothing (what the pump reports or is already heading to, or what is already queued) is not sent.
+- Attributes: `reported_value`, `queued_value`, `queued_until`, `last_write_value`, `last_write_at`, `last_write_status` (`sending`, `sent`, `confirmed`, `failed` or `expired`) and `last_write_error`.
+- Event `loggamera_setpoint_write_failed` when a write fails (`reason: error`), including a queued write, or is not reported back within 15 minutes (`reason: not_confirmed`). Data: `entity_id`, `loggamera_device_id`, `value`, `reason`, `error`.
+
 ## 📸 Screenshots
 
 | Device Type | Example |

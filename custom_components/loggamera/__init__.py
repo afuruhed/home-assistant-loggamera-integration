@@ -16,6 +16,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import LoggameraAPI, LoggameraAPIError
 from .const import (
+    CAPABILITIES_RETRY_SECONDS,
     CONF_API_KEY,
     CONF_DEVICE_ID,
     CONF_DEVICE_TYPE,
@@ -169,6 +170,11 @@ class LoggameraDataUpdateCoordinator(DataUpdateCoordinator):
         self.fixed_device = device
         # device_id -> writable property names, fetched once per device
         self.write_capabilities: Dict[str, List[str]] = {}
+        # device_id -> monotonic time before which a failed capabilities lookup is not retried
+        self._capabilities_retry_at: Dict[str, float] = {}
+        # device_id -> monotonic time of the last write attempt, shared by all entities of a
+        # device so writes are spaced out (the pump drops a write that follows another quickly)
+        self.last_write: Dict[str, float] = {}
         self.data = {
             "devices": [device] if device else [],
             "device_data": {},
@@ -189,11 +195,19 @@ class LoggameraDataUpdateCoordinator(DataUpdateCoordinator):
         Failures are not fatal: the heat pump keeps working without a setpoint entity.
         """
         key = str(device_id)
-        try:
-            if key not in self.write_capabilities:
+        if key not in self.write_capabilities:
+            if time.monotonic() < self._capabilities_retry_at.get(key, 0):
+                return
+            try:
                 self.write_capabilities[key] = await self.hass.async_add_executor_job(
                     self.api.get_write_capabilities, device_id
                 )
+            except LoggameraAPIError as err:
+                # Don't retry on every poll; a key without access would fail each time
+                self._capabilities_retry_at[key] = time.monotonic() + CAPABILITIES_RETRY_SECONDS
+                _LOGGER.debug(f"Write capabilities not available for device {device_id}: {err}")
+                return
+        try:
             if PROPERTY_SET_INDOOR_TEMP in self.write_capabilities[key]:
                 updated_data["device_data"][f"settings_{key}"] = (
                     await self.hass.async_add_executor_job(

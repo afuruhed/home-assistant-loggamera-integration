@@ -59,3 +59,11 @@ PLATFORMS = ["sensor", "binary_sensor", "switch", "number"]
 
 # Writable heat pump property exposed as a number entity
 PROPERTY_SET_INDOOR_TEMP = "SetIndoorTemp"
+
+# A failed GetCapabilities lookup is retried after this long, not on every poll
+CAPABILITIES_RETRY_SECONDS = 3600
+# Minimum time between two writes to the same device. A ComfortZone RX50 dropped a write
+# sent 3 s after another one, while writes about 4 min apart both arrived.
+WRITE_MIN_INTERVAL_SECONDS = 300
+# How long a written value is shown before the device's own reported value wins again
+PENDING_TIMEOUT_SECONDS = 900
